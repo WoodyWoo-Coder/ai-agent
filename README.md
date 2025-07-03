@@ -44,7 +44,7 @@ def get_stock_overview() -> dict:
     except requests.exceptions.RequestException as e:
         return {
             "status": "error",
-            "error_message": f"An error occurred while fetching the weather data: {str(e)}",
+            "error_message": f"An error occurred while fetching the stock market data: {str(e)}",
         }
 
 
