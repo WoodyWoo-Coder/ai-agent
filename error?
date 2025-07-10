@@ -1,0 +1,145 @@
+import tejapi
+tejapi.ApiConfig.api_key = "1gIZtLbbSSRNrYCIU3SaIOGBYemtkK"
+info = tejapi.ApiConfig.info()
+import datetime
+import requests
+import os
+from zoneinfo import ZoneInfo
+from google.adk.agents import LlmAgent
+
+
+
+def get_stock_overview() -> dict:
+    """Retrieves the latest changes from the stock market.
+    Args:
+       None.
+    Returns:
+        dict: status and result or error msg.
+    """
+
+    
+    url = f"https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an error for bad responses
+        data = response.json()
+        print (data)
+        # Create a list of dicts with 'Name' and 'TradeVolume', converting TradeVolume to int
+        stock_list = [
+            {
+                "Name": item["Name"],
+                "Code": item["Code"],
+                "TradeVolume": int(item["TradeVolume"].replace(',', '')) if isinstance(item["TradeVolume"], str) else item["TradeVolume"]
+            }
+            for item in data
+            if "Name" in item and "TradeVolume" in item and item["TradeVolume"].isdigit()
+        ]
+        # Sort by TradeVolume descending
+        stock_list.sort(key=lambda x: x["TradeVolume"], reverse=True)
+        # Get top 5
+        top_five = stock_list[:5]
+        # Prepare a readable report
+        report = "前五名成交量公司:\n" + "\n".join(
+            [f"{i+1}. {item['Name']} - {item['TradeVolume']}, 代碼為{item['Code']}" for i, item in enumerate(top_five)]
+        )
+        report += f"\n\n最新報告日期: {data[0]['Date']}" if data else "無可用數據"
+        return {"status": "success", "report": report}
+    except requests.exceptions.RequestException as e:
+        return {
+            "status": "error",
+            "error_message": f"An error occurred while fetching the stock market data: {str(e)}",
+        }
+def nouns_explaination(noun: str) -> dict:
+    """Explains nouns about the stock market.
+    Args:
+       noun (str): The name of the noun for which to provide an detailed explaination.
+    Returns:
+        dict: status and result or error msg.
+    """
+    list1 = [ "股票", "股東", "股價", "市值", "成交量", "成交價", "開盤價",
+              "收盤價", "最高價", "最低價", "漲跌幅", "多頭", "空頭", "做多",
+             "做空", "停損", "停利", "追高", "殺低", "當沖", "波段操作", "長期投資", 
+             "短線交易","年報", "季報", "EPS", "ROE", "本益比", "殖利率", "股利", 
+             "股息", "增資", "減資", "除權", "除息", "ETF", "指數", "期貨", "選擇權",
+             "權證", "K線圖", "均線", "RSI", "MACD", "布林通道", "支撐", "壓力",
+             "籌碼", "外資", "投信", "自營商", "散戶", "洗盤", "主力", "假突破", 
+             "黑馬股", "地雷股"]
+
+    noun = noun.lower().strip()
+   
+    if noun in list1:  
+        from configparser import ConfigParser
+        # Set up the config parser
+        config = ConfigParser()
+        config.read("config.ini")
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        llm_gemini=ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash",
+            google_api_key=config["Gemini"]["API_KEY"]
+        )
+       
+        # Prepare the user input and role description
+        user_input = f"{noun}是什麼？"
+
+        role_description = f"""
+        你是一個股票相關的專家，請用繁體中文回答關於「{noun}」的問題。
+        """
+
+        messages = [
+            ("system", role_description),
+            ("human", user_input),
+        ]
+
+        response_gemini = llm_gemini.invoke(messages)
+        report = f"好的，為您說明{noun} 的定義。\n"
+        report += f"Gemini : {response_gemini.content}"
+        print(report)
+        return {
+            "status": "success",
+            "report": report
+        }
+    else:
+        return {
+            "status": "error",
+            "error_message": f"抱歉，我不清楚 {noun} 的定義。請提供其他股市相關的名詞。",
+        }
+
+def get_current_time(city: str) -> dict:
+    """Returns the current time in a specified city.
+    Args:
+        city (str): The name of the city for which to retrieve the current time.
+    Returns:
+        dict: status and result or error msg.
+    """
+
+    if city.lower() == "new york":
+        tz_identifier = "America/New_York"
+    elif city.lower() == "taipei":
+        tz_identifier = "Asia/Taipei"
+    else:
+        return {
+            "status": "error",
+            "error_message": (
+                f"Sorry, I don't have timezone information for {city}."
+            ),
+        }
+
+    tz = ZoneInfo(tz_identifier)
+    now = datetime.datetime.now(tz)
+    report = (
+        f'The current time in {city} is {now.strftime("%Y-%m-%d %H:%M:%S %Z%z")}'
+    )
+    return {"status": "success", "report": report}
+
+
+root_agent = LlmAgent(
+    name="stock_market_agent",
+    model="gemini-2.0-flash",
+    description=(
+        "Agent to answer questions about the stock market in general, explain specific nouns about stocks , and analyze pictures about stock market information, also the weather."
+    ),
+    instruction=(
+        "You are a helpful agent who can answer user questions about the stock market and its related issues."
+    ),
+    tools=[get_stock_overview , nouns_explaination, get_current_time],
+)
